@@ -76,12 +76,19 @@ pagination_dir: page
 theme: next
 #theme: icarus
 
+plugins: hexo-generate-feed
+
 # Deployment
 ## Docs: https://hexo.io/docs/deployment.html
 deploy:
   type: git
   repo: https://github.com/VeryJJ/VeryJJ.github.io.git
   branch: master
+
+sitemap:
+  path: sitemap.xml
+baidusitemap:
+  path: baidusitemap.xml
 
 #article list
 jsonContent:

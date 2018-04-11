@@ -78,6 +78,7 @@ OK, hexo g -> hexo s 看下效果吧
 
 
 ## 支持搜索
+![image](Hexo装修记录/search-show.png)  
 ![image](Hexo装修记录/search-config.png)
 
 ## 文章阅读计数
@@ -155,3 +156,9 @@ comments: false   #注意：如果有启动多说或Disqus评论，需要关闭�
 **"分类"同理~**
 
 ![image](Hexo装修记录/show-categories.png)
+
+---
+
+# 其他推荐
++ [hexo的next主题个性化配置教程](https://segmentfault.com/a/1190000009544924)
+
