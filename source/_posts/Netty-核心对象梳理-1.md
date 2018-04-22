@@ -304,7 +304,19 @@ Netty的ByteBuffer替代品是ByteBuf，一个强大的实现，既解决了JDK 
 
     如果未能获取到一个ByteBufAllocator的引用，Netty提供一个简单的Unpooled工具类，它提供创建未池化的ByteBuf实例。
 
+---
 
+## 关于 ChannelFuture 和 ChannelPromise
+
++ ChannelFuture
+    - read-only
+    - 没有返回值的异步通知、调用
+    - DefaultFutureListeners -> listeners[N]
+
++ ChannelPromise
+    - writeable
+    - 可写异步执行结果的通知、调用
+    - notifyListenerNow -> 回到Listeners -> 取出对应的Channel进行回调操作
 
 
 

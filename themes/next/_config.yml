@@ -149,7 +149,8 @@ links_title: Links
 links_layout: block
 #links_layout: inline
 links:
-  Hexo: https://hexo.io
+  Hexo.io: https://hexo.io
+  Dubbo.io: https://github.com/apache/incubator-dubbo
 
 # Sidebar Avatar
 # in theme directory(source/images): /images/avatar.gif
