@@ -82,7 +82,9 @@ plugins: hexo-generate-feed
 ## Docs: https://hexo.io/docs/deployment.html
 deploy:
   type: git
-  repo: https://github.com/VeryJJ/VeryJJ.github.io.git
+  repo: 
+    github: https://github.com/VeryJJ/VeryJJ.github.io.git
+    #coding: https://git.coding.net/a63297066/veryjj.git
   branch: master
 
 sitemap:

@@ -1,6 +1,6 @@
 ---
 title: Dubbo源码解析-Spring Bean注册
-tags: [Dubbo]
+tags: [Dubbo,RPC]
 date: 2018-04-22 19:34:18
 categories: 技术
 ---
