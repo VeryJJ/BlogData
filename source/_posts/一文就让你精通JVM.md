@@ -457,6 +457,42 @@ JVM垃圾回收是继掌握内存模型后，必须进阶更进一步掌握的JV
 
 
 
+**衍生的知识点：**
+
+GC Roots的可达性分析，会衍生到图论的算法。有一个比较经典的有向图的问题：有向图检测是否存在环。
+
+这也是调用引擎，规则引擎经常会遇到的算法问题（新加入一个节点时预检测是否构成环）
+
+> 考虑简单环，所谓的简单环，即除了第一个和最后一个顶点，其余所有顶点在路径中只出现一次。
+
+实现思路一：DFS    时间复杂度O(V+E)
+
+做DFS（深度优先搜索）遍历时，每深入遍历一个的节点就把节点都压入**栈**，每退回一层遍历就把节点从栈中退出，且每次压入前都检测当前节点在栈中是否已存在。如果已存在，就表明曾经经过此节点，说明已构成环。
+
+[参考之一](https://blog.csdn.net/login_sonata/article/details/78002042)
+
+
+
+实现思路二：拓扑排序    时间复杂度O(n^2)    从有向图的末梢逐步往上砍叶子节点。
+
+出度和入度的概念。一张有向图是有顶点和带有方向的边组成的。对于一个顶点，如果有n边从其他顶点指向此顶点，则这个顶点的入度就是n。相应的，如果有n条边从这个顶点指向其他顶点，则这个顶点的出度就是n。
+
+**拓扑排序**的一般流程：
+
+1.初始化各个顶点的出度。
+
+2.移除出度为0的顶点和与此顶点相连的边。
+
+3.更新出度。
+
+4.重复步骤2和3，直到不存在出度为0的顶点或者顶点已经全部被移除了。
+
+5.判断是否存在剩余顶点，若存在则存在环，若不存在则无环。
+
+[参考](https://blog.csdn.net/weixin_48607921/article/details/107224420?utm_medium=distribute.pc_relevant.none-task-blog-BlogCommendFromMachineLearnPai2-1.channel_param&depth_1-utm_source=distribute.pc_relevant.none-task-blog-BlogCommendFromMachineLearnPai2-1.channel_param)
+
+
+
 ## 3.2、分代收集策略
 
 分代收集策略的目的本质是为了更高效效率的进行内存回收。
@@ -523,11 +559,87 @@ System.gc();
 
 
 
+## 3.4、“Stop The World”是怎么执行的（SafePoint）
+
+我们知道JVM GC是需要"Stop The World"的，“Stop The World”代表着所有Java线程需要全部暂停。在JVM Java线程高频并发运行的状态下，怎么让所有Java线程全部都进入安全的暂停状态呢？答案：**SafePoint机制**。
+
+<br>
+
+3.4.1、【概念】
+
+从线程角度看，safepoint可以理解成在代码执行过程中的一些特殊位置，当线程执行到这些位置的时候，说明虚拟机当前的状态是安全的，如果有需要，可以在这个位置暂停。比如：GC时需要暂停所以Java线程的需求。
+
+safepoint的特性可以用在不同的地方：GC、Deoptimization。
+
+常见的safepoint位置：
+
+1. 循环的末尾 (防止大循环的时候一直不进入 safepoint，而其他线程在等待它进入 safepoint)
+
+2. 方法返回前
+3. 调用方法的call之后 
+4. 抛出异常的位置
 
 
-## 3.3、垃圾收集器
 
-### **3.3.1、垃圾收集器类型**
+<br>
+
+3.4.2、【Safepoint放在代码什么位置】
+
+>  以Hotspot为例说明一下什么地方会放置safepoint
+
+1、理论上，在解释器的每条字节码的边界都可以放一个Safepoint，但挂载Safepoint的调试符号信息（为GC生成的符号信息是OopMap）要占用内存空间，如果每条机器码后面都加safepoint的话，需要保存大量的运行时数据，所以在放置Safepoint方面会取折中适用的策略。
+
+2、HotSpot JVM在通过JIT编译时，会在所有方法返回之前以及循环跳转、异常跳转之前放置Safepoint，为了防止发生GC需要STW时，该线程一直不能暂停。并且，在每个Safepoint都生成一些信息存储哪些地方是引用（**OopMap**），以便JVM能找到需要的引用。
+
+<br>
+
+3.4.3、【线程如何被挂起】
+
+有两种方法：**抢占式中断**(Preemptive Suspension)和**主动式中断**(Voluntary Suspension)。
+
+
+
+（线程被）**抢占式中断：**
+
+抢占式中断不需要线程的执行代码去主动配合。当触发GC时，JVM会中断所有线程，然后依次检查每个线程中断的位置是否为Safepoint，如果不是则恢复线程，让它执行至Safepoint再进行终端。
+
+<br>
+
+（线程）**主动式中断：**《《《 **HotSpot JVM的实现方式**
+
+即GC需要中断线程的时候，它仅仅简单地设个标志，每个Java线程会在进入Safepoint时主动轮询这个标志位，如果标志位就绪的话就自行中断。
+
+> 如果触发GC动作，VM thread会在`VMThread::loop()`方法中调用`SafepointSynchronize::begin()`方法，最终使所有的线程都进入到safepoint。
+
+```java
+// Roll all threads forward to a safepoint and suspend them all
+void SafepointSynchronize::begin() {
+  Thread* myThread = Thread::current();
+  assert(myThread->is_VM_thread(), "Only VM thread may execute a safepoint");
+
+  if (PrintSafepointStatistics || PrintSafepointStatisticsTimeout > 0) {
+    _safepoint_begin_time = os::javaTimeNanos();
+    _ts_of_current_safepoint = tty->time_stamp().seconds();
+  }
+```
+
+
+
+3.4.4、【线程如何恢复】
+
+有了`begin`方法，自然有对应的`end`方法，在`SafepointSynchronize::end()`中，会最终唤醒所有挂起等待的线程。
+
+
+
+思考题：
+
+1、GC时最大的影响就是STW周期，本文讲的所有线程都进入safepoint的也是有个周期，且此周期受并发线程个数和safepoint距离影响。问：线程池配的越多，对GC的耗时有明显的影响吗？
+
+
+
+## 3.5、垃圾收集器
+
+### **3.5.1、垃圾收集器类型**
 
 HotSpot JVM里有7种垃圾收集器，你是怎么记忆它们的呢？
 
@@ -555,7 +667,7 @@ HotSpot JVM里有7种垃圾收集器，你是怎么记忆它们的呢？
 
 
 
-### **3.3.2、常见垃圾收集器对比**
+### **3.5.2、常见垃圾收集器对比**
 
 ![image-20201003160503899](一文就让你精通JVM/image-20201003160503899.png)
 
@@ -585,7 +697,7 @@ HotSpot JVM里有7种垃圾收集器，你是怎么记忆它们的呢？
 
 
 
-### **3.3.3、常见垃圾收集器及原理**
+### **3.5.3、常见垃圾收集器及原理**
 
 **1、（年轻代）Serial**
 
@@ -1046,7 +1158,71 @@ non-heap（非堆内存）指Java进程内存中，JVM 堆内存范围以外的�
 
 # 6、JVM类加载器
 
-很快就添上此章节
+## 6.1、类加载过程
+
+类加载的7个步骤:
+
+- 装载。根据查找路径找到相应的 class 文件，然后导入。
+- 验证，检查待加载的 class 文件的正确性。《《《链接的 3 小步
+- 准备，给类中的静态变量分配存储空间。《《《链接的 3 小步
+- 解析，将符号引用转换为直接引用(这一步可选)。《《《链接的 3 小步
+- 初始化。对静态变量和静态代码块执行初始化工作。
+- 使用
+- 卸载
+
+
+
+类的加载方式分为隐式加载和显示加载。
+
+- 隐式加载指的是程序在使 用 new 等方式创建对象时，会隐式地调用类的加载器把对应的类 加载到 JVM 中。
+- 显示加载指的是通过直接调用 class.forName() 方法来把所需的类加载到 JVM 中。
+
+> 1、Class.forName 和 ClassLoader.loadClass 都能加载类，这两者在加载类时的区别？
+>
+> Class.forName有重载方法可以指定是否需要初始化，而默认的方法初始化设置为true这会初始化类执行链接和初始化操作
+>
+> ClasaLoader是有类加载器的loadClass方法加载，传入的是false，只会执行连接操作，不会初始化操作
+
+
+
+类只有被使用到的时候才会被加载，采用这种方法一方面可以加快加载速度，另一方面可以节约程序运行 时对内存的开销。
+
+
+
+此外，在 Java 语言中，每个类或接口都对应一 个 .class 文件，这些文件可以被看成是一个个可以被动态加载的
+
+单元，**因此当只有部分类被修改时，只需要重新编译变化的类即可， 而不需要重新编译所有文件**，因此加快了编译速度。
+
+
+
+## 6.2、类加载器的种类
+
+在Java中，类加载器主要有下面四种：
+
+- BootstrapClassLoader：启动类加载器，使用C++实现；
+- ExtClassLoader：扩展类加载器，使用Java实现；
+- AppClassLoader：应用程序类加载器，加载当前应用的classpath的所有类；
+- UserDefinedClassLoader：用户自定义类加载器；
+
+![img](/Users/chenjie/Documents/笔记中转区/周报/《一文就让你精通JVM》.assets/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L1dlaXhpYW9odWFp,size_16,color_FFFFFF,t_70.png)
+
+
+
+## 6.3、双亲委派机制
+
+类加载器的加载过程中使用到了双亲委派机制：当一个类收到了类加载请求，它首先不会尝试自己去加载这个类，而是把这个请求委派给父类去完成，每一个层次类加载器都是如此，因此所有的加载请求都应该传送到启动类加载器(BootstrapClassLoader)中，只有当父类加载器反馈自己无法完成这个请求的时候（在它的加载路径下没有找到所需加载的Class），子类加载器才会尝试自己去加载。
+
+好处：
+
+比如加载位于 rt.jar 包中的类 java.lang.Object，不管是哪个加载器加载这个类，最终都是委托给顶层的启动类加载器进行加载，这样就保证了使用不同的类加载器最终得到的都是同样一个 Object对象。
+
+
+
+
+
+## 6.4、沙箱安全机制
+
+沙箱安全机制是由基于双亲委派机制上采取的一种JVM的自我保护机制，假设我们自定了一个java.lang.String 的类，由于双亲委派机制，加载请求会先交给BootstrapClassLoader启动类加载器试图去进行加载，但是BootstrapClassLoader在加载类时首先通过包和类名查找rt.jar中有没有java.lang.String，有则优先加载rt.jar包中的类，由于rt.jar中已经包含了java.lang.String类，所以我们自定义的String类永远得不到加载(当然编译是不会报错的)，它保证了Java源代码的安全。
 
 
 
@@ -1210,6 +1386,16 @@ Java在JDK10以后，开始了对容器资源限制的支持（支持向linux cg
 - 一般方法区的溢出是由于大量的动态类，而动态类往往来自于框架或三发SDK。基本没的干预，所以一般是调大方法区大小。
 
 
+
+## 7.8、怎么构造Java内存泄露
+
+Java 中的内存泄露的情况:**长生命周期的对象持有短生命周期对象的引用**就很可能发生内存泄露，尽管短生命周期对象已经不再需要，但是**因为长生命周期对象持有它的引用而导致不能被回收**，这 就是 Java 中内存泄露的发生场景
+
+例如
+
+- 缓存系统，我们加载了一个对 象放在缓存中 (例如放在一个全局 map 对象中)，然后一直不再 使用它，这个对象一直被缓存引用，但却不再被使用。
+- 如果一个外部类的实例对象的方法返回了一个内部类的实例对象， 这个内部类对象被长期引用了，即使那个外部类实例对象不再被使 用，但由于内部类持久外部类的实例对象，这个外部类对象将不会 被垃圾回收，这也会造成内存泄露。
+- 内存泄露的另外一种情况:当一个对象被存储进 HashSet 集合中 以后，就不能修改这个对象中的那些参与计算哈希值的字段了，否 则，对象修改后的哈希值与最初存储进 HashSet 集合中时的哈希 值就不同了，在这种情况下，即使在 contains 方法使用该对象的 当前引用作为的参数去 HashSet 集合中检索对象，也将返回找不 到对象的结果，这也会导致无法从 HashSet 集合中单独删除当前 对象，造成内存泄露。
 
 
 
